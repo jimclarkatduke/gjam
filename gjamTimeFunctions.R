@@ -1,6 +1,8 @@
 
 colF <- colorRampPalette( c('#8c510a','#d8b365','#c7eae5','#5ab4ac','#01665e','#2166ac') )
 
+colT <- colorRampPalette( c('#8c510a','#d8b365','#c7eae5','#5ab4ac','#01665e','#2166ac') )
+
 mergeList <- function( list1, list2 ){
   
   # update elements of list1 if contained list2
@@ -205,7 +207,9 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
        wdata = wdata)
 }
 
-gjamTimePrior <- function( xdata, ydata, edata, priorList ){
+gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 10 ){
+  
+  # minSign - minimum number of co-occurrences to estimate alpha
   
   bp <- lp <- ap <- NULL
   formulaBeta <- formulaRho <- alphaSign <- NULL
@@ -217,6 +221,7 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList ){
   
   S <- ncol(ydata)
   w <- ydata/edata
+  n <- nrow(w)
   
   if(!is.null(betaPrior))termB <- TRUE
   if(!is.null(rhoPrior)) termR <- TRUE
@@ -335,20 +340,42 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList ){
     if( !is.list(rhoPrior) ){
       if(is.null(lp))stop(' must have rhoPrior if there is alphaSign' )
       ap <- NULL
+      
     }else{
+      
+      #must co-occur
+      yind <- ydata
+      yind[yind > 1] <- 1
+      yind <- crossprod(yind)
+      
+      yind[yind < minSign] <- 0  # minimum co-occurence
+      yind[yind > 1] <- 1
+      
+      alphaSign <- alphaSign*yind[rownames(alphaSign),colnames(alphaSign)]
       
       rho <- (lp$lo['intercept',] + lp$hi['intercept',1])/2 + .01
       
-      wstar <- colMeans( ydata/edata, na.rm=T )
-      aa <- (1 - rho)/wstar                  # crude carrying capacity
+      wmu    <- colMeans( ydata/edata, na.rm=T )
+      wdelta <- apply( w, 2, diff )  # pop rate
+      wdelta[!is.finite(wdelta) ] <- 0
       
-      aa <- rho/wstar
+      ##############
+      rmat <- matrix(rho, n-1, S, byrow=T) 
+      wdelta[ wdelta >  rmat ] <- rmat[ wdelta > rmat ]
+      wi <- 1/w[-n,]
+      wi[ !is.finite(wi) ] <- 0
+      wd <- wdelta*wi
+      wd[ !is.finite(wd) ] <- 0
       
-      a1 <- matrix(-aa, S, S)
-      a2 <- matrix(-aa, S, S, byrow=T)
-      a1[ a2 > a1 ] <- a2[ a2 > a1 ]
+      ww <- n/crossprod(w)
+      whi <- -matrix(colMeans(wdelta), S, S, byrow=T)/ww  # E[dw]/E[w_s * w_s']
       
-      a1 <- 2*a1
+      
+      ##############
+  
+      
+      
+      a1 <- -1*whi
       
       #alphaSign
       
