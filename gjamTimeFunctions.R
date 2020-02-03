@@ -21,6 +21,12 @@ mergeList <- function( list1, list2 ){
   list1
 }
 
+.pasteCols <- function(mm){
+  tmp <- apply(mm,1,paste0,collapse='-')
+  names(tmp) <- NULL
+  tmp
+}
+
 
 .wrapperEquilAbund <- function(output, nsim = 10, ngrid = NULL, BYFACTOR = FALSE, 
                                BYGROUP = TRUE, verbose = FALSE){
@@ -253,8 +259,108 @@ mergeList <- function( list1, list2 ){
   list(x = xgrid, ccMu = ccMu, ccSd = ccSd)
 }
 
+plotEquilAbund <- function(output, nsim = 20, ngrid = NULL, BYFACTOR = FALSE, 
+                           verbose = T){
+  
+  wstar <- .wrapperEquilAbund(output, nsim, ngrid, BYFACTOR, 
+                              verbose = verbose)
+  ccMu <- wstar$ccMu[,notOther]
+  ccSd <- wstar$ccSd[,notOther]
+  ccx  <- wstar$x
+  ccx  <- ccx[, !colnames(ccx) %in% attributes(ccx)$factors, drop=F]
+  ccx  <- ccx[,-1, drop=F]
+  
+  np <- ncol(ccMu)
+  
+  npage <- 1
+  o   <- 1:np
+  if(np > 16){
+    npage <- ceiling(np/16)
+    np    <- 16
+  }
+  
+  mfrow <- .getPlotLayout(np)
+  
+  nbin <- 12
+  ylimit <- c(0, max(ccMu) )
+  
+  for(m in 1:ncol(ccx)){   # loop over predictors
+    
+    xm  <- colnames(ccx)[m]
+    xx  <- ccx[,m]
+    atx <- quantile(xx,seq(0, 1, length=nbin))
+    
+    xlimit <- c( sum( c(.7, .3)*atx[1:2] ), sum( c(.3, .7)*atx[(nbin-1):nbin] ) )
+    
+    k   <- 0
+    add <- F
+    o   <- 1:np
+    o   <- o[o <= 16]
+    
+    for(p in 1:npage){
+      
+      file <- paste('equilAbund_', xm, '_', p,'.pdf',sep='')
+      
+      if(SAVEPLOTS)pdf( file=.outFile(outFolder,file) )
+      
+      npp <- ncol(ccMu) - k
+      if(npp > np)npp <- np
+      mfrow <- .getPlotLayout(np)
+      par(mfrow=mfrow, bty='n', omi=c(.3,.3,0,0), mar=c(3,3,2,1), 
+          tcl= tcl, mgp=mgp)
+      
+      for(j in o){
+        
+        yy  <- ccMu[,j]
+        
+        minbin <- 5
+        xmids  <- 0
+        while( length(xmids) == 1){
+          minbin <- minbin - 1
+          tt  <- .getBin(xx, yy, minbin = minbin)
+          xbin <- tt$xbin
+          xmids <- tt$xmids
+        }
+        
+        c95 <- tapply( yy, list(bin = xbin), quantile, pnorm( c(-1.96, -1, 1, 1.96) ))
+        ci <- matrix( unlist( c95 ), ncol = 4, byrow = T )
+        rownames(ci) <- names(c95)
+        
+        xmids <- xmids[ as.numeric(names(c95)) ]
+        
+        .shadeInterval( xmids, loHi = ci[,c(1, 4)],col=specColor[j],PLOT=T,add=F,
+                        xlab=' ',ylab=' ', xlim = xlimit,  
+                        LOG=F, trans = .3)
+        .shadeInterval( xmids, loHi = ci[,c(2, 3)],col=specColor[j], PLOT=T, add=T, 
+                        trans = .3)
+        mu <- tapply( yy, xbin, mean )
+        lines(xmids,  mu, lty=2, lwd=2, col = specColor[j])
+        
+        
+        k <- k + 1
+        if(k > 26)k <- 1
+        
+        lab <- colnames(ccMu)[j]
+        
+        .plotLabel( lab,above=T )
+      }
+      mtext(xm, 1, outer=T)
+      mtext('Equilibrium abundance', 2, outer=T)
+      
+      if(!SAVEPLOTS){
+        readline('equilibrium abundance -- return to continue ')
+      } else {
+        dev.off()
+      }
+      o <- o + 16
+      o <- o[o <= SO]
+    }
+  }
+}
 
-gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEffort = 1,
+
+
+gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEffort = 100,
                         predPrey = NULL, zeroAlpha = NULL, PLOT = FALSE){
   
   # observations are counts ('DA' in gjam)
@@ -301,9 +407,9 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
   
   if(termB){ # environmental immigration/emigration
     
-    bsd <- 5
-    if(termR)bsd <- 5
-    if(termA)bsd <- 20
+    bsd <- 2
+    if(termR)bsd <- 2
+    if(termA)bsd <- 10
     
     x     <- matrix( 0, ntot, Q)
     beta  <- matrix( rnorm(Q*S, 0, bsd), Q, S )
@@ -326,7 +432,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
       gam <- runif(S, -.03, .05)
     }
     if(termA){
-      gam <- runif(S, .04, .2)
+      gam <- runif(S, .01, .1)
     }
     rhoTrue <- gam
   }
@@ -340,7 +446,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
     np     <- 0
     
     while(!allPos){
-      daa <- runif(S,-1/100000,-1/200000)  # competition
+      daa <- runif(S,-1/80000,-1/150000)  # competition
       ir  <- runif(S^2, min(daa), 0)
       aa  <- matrix(ir, S, S)
       diag(aa) <- intrWt*daa
@@ -356,7 +462,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
     print( paste(np, 'iterations for termA') )
   }
   
-  # residual covariance small
+  # residual covariance
   sigma <- diag(1, S)
   XB    <- 0
   
@@ -440,7 +546,17 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
        wdata = wdata)
 }
 
-gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 10 ){
+.cleanNames <- function(xx){
+  
+  xx <- .replaceString(xx,'-','')
+  xx <- .replaceString(xx,'_','')
+  xx <- .replaceString(xx,' ','')
+  xx <- .replaceString(xx,"'",'')
+  xx
+}
+
+gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5, 
+                           betaMax = 30, rhoMax = 1 ){
   
   # minSign - minimum number of co-occurrences to estimate alpha
   
@@ -455,6 +571,9 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 10 ){
   S <- ncol(ydata)
   w <- ydata/edata
   n <- nrow(w)
+  
+  colnames(w) <- .cleanNames( colnames(w ) )
+  
   
   if(!is.null(betaPrior))termB <- TRUE
   if(!is.null(rhoPrior)) termR <- TRUE
@@ -539,6 +658,9 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 10 ){
     bh <- bhi + 2*abs(bhi)
     rownames(bl)[1] <- rownames(bh)[1] <- 'intercept'
     
+    blo[ blo < -betaMax ] <- -betaMax
+    bhi[ bhi > betaMax ]  <- betaMax
+    
     if( is.list(betaPrior) ){
       gg  <- gjamPriorTemplate(formulaBeta, xdata, ydata = ydata, 
                                lo = betaPrior$lo, hi = betaPrior$hi)
@@ -556,6 +678,8 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 10 ){
       attr(blo,'formula') <- formulaBeta
       bhi <- bh
     }
+    
+    
     bp  <- list(lo = blo, hi = bhi )
   }
   
@@ -563,21 +687,31 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 10 ){
     if( !is.list(rhoPrior) ){
       lp <- NULL
     }else{
+      formulaRho <- priorList$formulaRho
+      if(is.null(formulaRho)){
+        cat('\nformulaRho omitted from priorList, used ~1\n')
+      }
       gg <- gjamPriorTemplate(formulaRho, xdata, ydata = ydata, 
                               lo = rhoPrior$lo, hi = rhoPrior$hi)
       lp <- list(lo = gg[[1]], hi = gg[[2]])
     }
+    
+    lp$lo[ lp$lo < -betaMax ] <- -betaMax
+    lp$hi[ lp$hi > betaMax ]  <- betaMax
   }
+  
   if(termA){  # alpha
     
     if( !is.list(rhoPrior) ){
       if(is.null(lp))stop(' must have rhoPrior if there is alphaSign' )
       ap <- NULL
-      
     }else{
       
       #must co-occur
       yind <- ydata
+      rownames(alphaSign) <- colnames(alphaSign) <- 
+        colnames(yind) <- .cleanNames( colnames(alphaSign ) )
+      
       yind[yind > 1] <- 1
       yind <- crossprod(yind)
       
@@ -586,43 +720,54 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 10 ){
       
       alphaSign <- alphaSign*yind[rownames(alphaSign),colnames(alphaSign)]
       
-      rho <- (lp$lo['intercept',] + lp$hi['intercept',1])/2 + .01
+      rho <- (lp$lo['intercept',] + lp$hi['intercept',])/2 + .01
       
-      wmu    <- colMeans( ydata/edata, na.rm=T )
+      timeZero <- which(xdata$times == 0)
+      timeLast <- (timeZero - 1)[-1]
+      wt <- unique( c(timeZero, timeLast) )
+
+      wmu    <- colMeans( w, na.rm=T )
       wdelta <- apply( w, 2, diff )  # pop rate
       wdelta[!is.finite(wdelta) ] <- 0
+      wdelta <- wdelta[-wt,]
       
       ##############
-      rmat <- matrix(rho, n-1, S, byrow=T) 
-      wdelta[ wdelta >  rmat ] <- rmat[ wdelta > rmat ]
-      wi <- 1/w[-n,]
-      wi[ !is.finite(wi) ] <- 0
-      wd <- wdelta*wi
-      wd[ !is.finite(wd) ] <- 0
+   #   rmat <- matrix(rho, n-1, S, byrow=T) 
+   #   wdelta[ wdelta >  rmat ] <- rmat[ wdelta > rmat ]
+   #   wi <- 1/w[-n,]
+      
+   #   wi[ !is.finite(wi) ] <- 0
+   #   wd <- wdelta*wi
+   #   wd[ !is.finite(wd) ] <- 0
+   #   wd[ wd >  rmat ] <- rmat[ wd > rmat ]
       
       ww <- n/crossprod(w)
-      whi <- -matrix(colMeans(wdelta), S, S, byrow=T)/ww  # E[dw]/E[w_s * w_s']
+      wrange <- apply(wdelta, 2, quantile, c(.05,.95), na.rm=T)
+      wrange[1, wrange[1,] >= 0 ] <- mean( wrange[1, wrange[1,] < 0 ] )
+      wrange[2, wrange[2,] <= 0 ] <- mean( wrange[2, wrange[2,] > 0 ] )
       
+      wlo <- matrix(wrange[1,], S, S, byrow=T)*ww   # E[dw]/E[w_s * w_s']
+      whi <- matrix(wrange[2,], S, S, byrow=T)*ww   # E[dw]/E[w_s * w_s']
       
-      ##############
-  
+      rw  <- apply( w, 2, quantile, .8, na.rm = T)
+      rlh <- matrix( rho/rw, S, S, byrow= T) # rho/w_s
       
+      whi[ whi > rlh ]  <- rlh[ whi > rlh ] 
+      wlo[ wlo < -rlh ] <- -rlh[ wlo < -rlh ] 
       
-      a1 <- -1*whi
-      
-      #alphaSign
-      
-      alo <- a1
-      ahi <- alo*0
+      alo <- ahi <- wlo*0
       ww  <- which(alphaSign < 0)
+      
+      scale <- 100
+      if(max(whi) > .1)scale <- 1
       if(length(ww) > 0){
-        alo[ww] <- a1[ww]
+        alo[ww] <- scale*wlo[ww]
         ahi[ww] <- 0
       }
       ww <- which(alphaSign > 0)
       if(length(ww) > 0){
         alo[ww] <- 0
-        ahi[ww] <- -a1[ww]
+        ahi[ww] <- scale*whi[ww]
       }
       ww <- which(alphaSign == 0)
       if(length(ww) > 0)alo[ww] <- ahi[ww] <- NA
@@ -631,7 +776,8 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 10 ){
     }
   }
   
-  list(betaPrior = bp, rhoPrior = lp, alphaPrior = ap)
+  list(betaPrior = bp, rhoPrior = lp, alphaPrior = ap, formulaBeta = formulaBeta,
+       formulaRho = formulaRho)
 }
 
 foodWebDiagram <- function(S, guildList = NULL, predPrey = NULL, zeroAlpha = NULL,
