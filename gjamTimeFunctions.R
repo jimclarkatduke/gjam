@@ -358,7 +358,43 @@ plotEquilAbund <- function(output, nsim = 20, ngrid = NULL, BYFACTOR = FALSE,
   }
 }
 
-
+.rMVN <- function (nn, mu, sigma = NULL, sinv = NULL){
+  
+  # nn - no. samples from one mu vector or nrow(mu) for matrix
+  
+  if(!is.null(sigma)){
+    m <- ncol(sigma)
+  }else if(!is.null(sinv)){
+    m <- ncol(sinv)
+  }else{
+    stop( '.rMNV requires either sigma or sinv' )
+  }
+  
+  if(length(mu) > 1){
+    if( !is.matrix(mu) ) mu <- matrix( mu, nn, length(mu) )  # mu is a vector of length m
+    if( ncol(mu) == 1 & nn == 1 )  mu <- t(mu)
+    if( length(mu) == m & nn > 1) mu <- matrix( mu, nn, length(mu), byrow=T )
+  }
+  
+  if(is.null(sinv)){          # from sigma
+    
+    vv <- try(svd(sigma),T)
+    
+    if( inherits(vv,'try-error') ){
+      ev <- eigen(sigma, symmetric = TRUE)
+      rr <- t(ev$vectors %*% (t(ev$vectors) * sqrt(ev$values)))
+    } else {
+      rr <- vv$v %*% (t(vv$u) * sqrt(vv$d)) 
+    }
+    
+  }else{     # from sinv
+    
+    L  <- chol(sinv)  
+    rr <- backsolve(t(L), diag(m), upper.tri = F) 
+  }
+  ps <- matrix(rnorm(nn * m), nn) %*% rr
+  ps + mu 
+}
 
 gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEffort = 100,
                         predPrey = NULL, zeroAlpha = NULL, PLOT = FALSE){
