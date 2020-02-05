@@ -591,6 +591,22 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
   xx
 }
 
+
+.replaceString <- function(xx,now='_',new=' '){  #replace now string in vector with new
+  
+  ww <- grep(now,xx,fixed=T)
+  if(length(ww) == 0)return(xx)
+  
+  for(k in ww){
+    s  <- unlist( strsplit(xx[k],now,fixed=T) )
+    ss <- s[1]
+    if(length(s) == 1)ss <- paste( ss,new,sep='')
+    if(length(s) > 1)for(kk in 2:length(s)) ss <- paste( ss,s[kk],sep=new)
+    xx[k] <- ss
+  }
+  xx
+}
+
 gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5, 
                            betaMax = 30, rhoMax = 1 ){
   
