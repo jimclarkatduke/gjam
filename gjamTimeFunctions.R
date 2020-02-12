@@ -28,11 +28,176 @@ mergeList <- function( list1, list2 ){
 }
 
 
-.wrapperEquilAbund <- function(output, nsim = 10, ngrid = NULL, BYFACTOR = FALSE, 
-                               BYGROUP = TRUE, verbose = FALSE){
+gjamPredTime <- function(output, nsim = 10, quant = .05, minw = .1){
   
   # evaluates carrying capacity for TIME
   # must supply either 'groups' or 'ngrid'
+  # groups - xdata$groups column to predict for groups
+  # ngrid  - no. values per covariate if !BYGROUP
+  # nsim   - simulation steps per covariate combination
+  # NOTE: x is centered and standardized
+  
+  #  breaks <- optim <- rhoStandXmu <- sensAlpha <- sensBeta <- sensRho <- 
+  #    wA <- wL <- xStand <- xUnstand <- NULL
+  
+  x          <- output$inputs$xStand
+  xl         <- output$inputs$xRho
+  #xnames     <- output$inputs$xnames
+  xlnames    <- output$inputs$xlnames
+  factorBeta <- output$inputs$factorBeta
+  factorRho  <- output$inputs$factorRho
+  ydata      <- output$inputs$y
+  effMat     <- output$inputs$effMat
+  uindex     <- output$parameters$uindex
+  gindex     <- output$parameters$gindex
+  other      <- output$inputs$other
+  notOther   <- output$inputs$notOther
+  bg         <- output$parameters$betaMu
+  xnames     <- rownames(bg)
+  Rmat       <- output$parameters$RmatStandXmu
+  Amat       <- output$parameters$Amu
+  sigMu      <- output$parameters$sigMu
+  wB         <- output$parameters$wB
+  wL         <- output$parameters$wL
+  wA         <- output$parameters$wA
+  bgibbs     <- output$chains$bgibbs
+  lgibbs     <- output$chains$lgibbs
+  alphaGibbs <- output$chains$alphaGibbs
+  groups     <- output$inputs$xdata$groups
+  ng         <- output$modelList$ng
+  burnin     <- output$modelList$burnin
+  timeList   <- output$inputs$timeList
+  groupCol   <- output$inputs$timeList$groups
+  timeCol    <- output$inputs$timeList$times
+  group      <- output$inputs$xdata[,groupCol]
+ # time       <- output$inputs$xdata[,timeCol]
+  assign(timeCol, time)
+  time       <- output$inputs$xdata$times
+  timeZero   <- output$inputs$timeList$timeZero
+ # year       <- output$inputs$xdata[,groupCol]
+  
+  cx <- colnames(xl)[!colnames(xl) %in% colnames(x)]
+  if(length(cx) > 0)x <- cbind(x, xl[,cx])
+  
+  S <- ncol(ydata)
+  snames <- colnames(ydata)
+  termB  <- termR <- termA <- FALSE
+  
+  if(!is.null(bgibbs))termB <- TRUE
+  if(!is.null(lgibbs))termR <- TRUE
+  if(!is.null(alphaGibbs))termA <- TRUE
+  
+  w <- ydata/effMat
+  
+ # wstart <- apply( ydata/effMat, 2, mean, na.rm=T)
+  
+  fn <- function(wt, termA, termB, termR, xmu, xlmu,
+                 gindex, uindex, notOther,
+                 amat, bmat, rmat, epsilon){
+    wz <- wt
+    wz[ wz < 0 ] <- 0
+    ff <- wz*0
+    
+    if(termB)ff[,notOther] <- t(xmu[,rownames(bmat)]%*%bmat[,notOther])
+    if(termR){
+      Vmat <- wz[ drop=F, ,gindex[,'colW']]*xlmu[ drop=F, ,gindex[,'colX']]
+      colnames(Vmat) <- rownames(gindex)
+      ff[,notOther] <- ff[,notOther] + Vmat%*%rmat[colnames(Vmat),notOther]
+    }
+    if(termA){
+      Umat <- wz[ drop=F, ,uindex[,1]]*wz[ drop=F, ,uindex[,2]]
+      ff[,notOther] <- ff[,notOther] + Umat%*%amat[,notOther]
+    }
+    ff[,notOther] <-  ff[,notOther] + wz[,notOther] + epsilon
+    ff
+  }
+  
+  
+  ii <- burnin:ng
+  
+  times  <- sort(unique(time))
+  groups <- sort(unique(group))
+  nt     <- length(times)
+  ng     <- length(groups)
+  
+  pbar <- txtProgressBar(min = 1,max = nt, style=1)
+  
+  ylo <- yhi <- ymu <- w*0
+  
+  yj <- array(NA, dim = c( ng, ncol(w), nsim) )
+  dimnames(yj)[[1]] <- groups
+  dimnames(yj)[[2]] <- colnames(w)
+  
+  wj <- w[timeZero+1,] + .01
+  for(k in 1:nsim)yj[,,k] <- wj
+  
+  for(j in 1:nt){
+    
+    gj <- which(time == j)  # x[gj,] is one step ahead of w[timeZero,]
+    gi <- group[gj]
+    
+    zj <- yj <- yj[gi,,] 
+    zj[ zj < 0 ] <- 0
+    zj <- zj + minw
+    
+    if(j> 1){
+      
+      for(k in 1:nsim){
+        
+        ig <- sample(ii, 1)   
+        
+        muw <- w*0
+        
+        if(termB){
+          bmat <- bg*0
+          bmat[ 1:length(bg) ] <- bgibbs[ig,]
+        }
+        
+        if(termA){
+          amat <- Amat*0
+          amat[ wA ] <- alphaGibbs[ig,]
+        }
+        
+        if(termR){
+          rmat <- Rmat*0
+          rmat[ wL ] <- lgibbs[ig,]
+        }
+        
+        epsilon <- .rMVN(1, 0, sigma = sigMu )[notOther]
+        
+        yj[,,k] <- fn(wt = zj[ , ,k], termA, termB, termR, 
+                      xmu = x[drop=F, gj, ], xlmu = xl[drop=F, gj, ],
+                      gindex, uindex, notOther,
+                      amat, bmat, rmat, epsilon)
+      }
+    }
+    
+    yj[ yj < 0 ] <- 0
+    ymu[gj,] <- apply( yj, c(1,2), mean )
+    ylo[gj,] <- apply( yj, c(1,2), quantile, quant )
+    yhi[gj,] <- apply( yj, c(1,2), quantile, 1 - quant )
+    
+    setTxtProgressBar(pbar,j)
+    
+  }
+  
+  ymu <- ymu*effMat[,notOther]
+  ylo <- ylo*effMat[,notOther]
+  yhi <- yhi*effMat[,notOther]
+  
+  list(ymu = ymu, ylo = ylo, yhi = yhi)
+}
+##########################
+
+
+##########################
+
+.wrapperEquilAbund <- function(output, covars = NULL, nsim = 10, ngrid = NULL, 
+                               BYFACTOR = FALSE, BYGROUP = TRUE, verbose = FALSE){
+  
+  # evaluates equil abundances for TIME
+  # covars - names of covariates in x to use as gradients
+  # must supply 'ngrid' or BYGROUP
   # groups - xdata$groups column to predict for groups
   # ngrid  - no. values per covariate if !BYGROUP
   # nsim   - simulation steps per covariate combination
@@ -67,6 +232,8 @@ mergeList <- function( list1, list2 ){
   ng         <- output$modelList$ng
   burnin     <- output$modelList$burnin
   
+  if( !is.null(ngrid) )BYGROUP <- F
+  
   cx <- colnames(xl)[!colnames(xl) %in% colnames(x)]
   if(length(cx) > 0)x <- cbind(x, xl[,cx])
   
@@ -83,6 +250,10 @@ mergeList <- function( list1, list2 ){
   vxnames <- xnames[ !xnames %in% factorBeta$isFactor ][-1] # exclude intercept
   vxnames <- vxnames[ !vxnames %in% factorRho$isFactor ]
   
+  gnames <- vxnames
+  
+  if( !is.null(covars) )gnames <- vxnames[ vxnames %in% covars ]
+  
   ix <- grep(':', xnames)
   intb <- xnames[ix]
   if (length(ix) > 0)xnames <- xnames[ -ix ]
@@ -96,11 +267,18 @@ mergeList <- function( list1, list2 ){
   if (length(ix) > 0)vxnames <- vxnames[ -ix ]
   
   if( !BYGROUP ){   # a prediction grid for covariates
+    
     sgrid <- 0
-    if(ngrid > 1)sgrid <- seq(-3, 3, length = ngrid)  # std deviations for standardized x
+    if(ngrid > 1)sgrid <- seq(-2.5, 2.5, length = ngrid)  # std devs for standardized x
     
     grid <- vector( 'list', length(vxnames) )
-    for(k in 1:length(vxnames))grid[[k]] <- sgrid
+    for(k in 1:length(vxnames)){
+      if(vxnames[k] %in% gnames){
+        grid[[k]] <- sgrid
+      }else{
+        grid[[k]] <- 0
+      }
+    }
     names(grid) <- vxnames
     xgrid <- expand.grid(grid)
     
@@ -115,36 +293,37 @@ mergeList <- function( list1, list2 ){
   
   nfact <- length(fnames)
   factorColumns <- character(0)
-  
+
   if(nfact > 0){
     
     flist  <- vector( 'list', length(fnames))
     
-    for(k in 1:length(fnames)){
+    for(k in 1:length(fnames)){ # find factor in either factorBeta or factorRho
+      
       
       fk <- fl <- numeric(0)
       knames <- lnames <- character(0)
       
-      fk <- factorBeta$contrast[fnames[k]][[1]]
-      if(length(fk) > 0){
-        knames <- factorBeta$factorList[fnames[k]][[1]]
+      if ( !is.null(factorBeta$factorList) ) {
+        wf <- grep(fnames[k], names(factorBeta$factorList))
+        if(length(wf) > 0){
+          fk <- factorBeta$contrast[fnames[k]][[wf]]
+          knames <- factorBeta$factorList[fnames[k]][[1]]
+          fcc   <- factorBeta$factorList[[wf]]
+        }
       }
-      fl <- factorRho$contrast[fnames[k]][[1]]
-      if(length(fl) > 0){
-        fk <-  fl
-        knames <- factorRho$factorList[fnames[k]][[1]]
+      if (!is.null(factorRho$factorList) ) {
+        wf <- grep(fnames[k], names(factorRho$factorList))
+        if(length(wf) > 0){
+          fk <- factorRho$contrast[fnames[k]][[1]]
+          knames <- factorRho$factorList[fnames[k]][[1]]
+          fcc   <- factorRho$factorList[[wf]]
+        }
       }
-      
       if(!BYFACTOR)fk <- fk[drop = F, 1, ]
       
       xindex <- rep( 1:nrow(xgrid), each = nrow(fk) )
       kindex <- rep( 1:nrow(fk), nrow(xgrid) )
-      
-      fcc <- NULL
-      if( !is.null(factorBeta$factorList) ){
-        fcc   <- factorBeta$factorList[[k]]
-      }
-      if( !is.null(factorRho$factorList) & is.null(fcc) )fcc <- factorRho$factorList[[k]]
       
       colnames(fk) <- fcc
       
@@ -153,6 +332,7 @@ mergeList <- function( list1, list2 ){
       factorColumns <- c( factorColumns, fcc )
     }
   }
+      
   
   intercept <- 1
   xgrid <- as.matrix( cbind(intercept, xgrid) )
@@ -186,6 +366,8 @@ mergeList <- function( list1, list2 ){
   lo <- rep(0, S)
   hi <- 2*max(ydata/effMat)
   
+  if( verbose ) print(dim(xgrid))
+  
   if(nrow(xgrid) > 10)pbar <- txtProgressBar(min = 1,max = nrow(xgrid), style=1)
   
   ccMu <- matrix(0, nrow(xgrid), S)
@@ -193,11 +375,13 @@ mergeList <- function( list1, list2 ){
   rownames(ccMu) <- rownames(xgrid)
   ccSd <- ccMu
   
+  xnames <- rownames(bg)
+  
   ii <- burnin:ng
   
   for(j in 1:nrow(xgrid)){
     
-    xmu   <- xgrid[drop=F, j, ]
+    xmu   <- xgrid[drop=F, j, xnames]
     xlmu  <- xgrid[drop=F, j, xlnames]
     wstar <- matrix(NA, nsim, S)
     
@@ -213,11 +397,10 @@ mergeList <- function( list1, list2 ){
         if(length(intb) > 0){
           for(m in 1:length(intb)){
             cii <- unlist( strsplit(intb[m], ':') )
-            xlmu <- cbind(xmu, xmu[1,cii[1]]*xmu[1,cii[2]])
+            xmu <- cbind(xmu, xmu[1,cii[1]]*xmu[1,cii[2]])
           }
-          colnames(xlmu) <- c(cnn,intb)
+          colnames(xmu) <- c(cnn,intb)
         }
-        
       }
       
       if(termA){
