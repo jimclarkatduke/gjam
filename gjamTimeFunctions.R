@@ -1107,3 +1107,41 @@ foodWebDiagram <- function(S, guildList = NULL, predPrey = NULL, zeroAlpha = NUL
 }
 
 
+.plotLabel <- function(label,location='topleft',cex=1.3,font=1,
+                       above=F,below=F,bg=NULL){
+  
+  if(above){
+    adj <- 0
+    if(location == 'topright')adj=1
+    title(label,adj=adj, font.main = font, font.lab =font)
+    return()
+  }
+  if(below){
+    adj <- 0
+    if(location == 'bottomright')adj=1
+    mtext(label,side=1,adj=adj, outer=F,font.main = font, font.lab =font,cex=cex)
+    return()
+  }
+  
+  if(is.null(bg)){
+    tmp <- legend(location,legend=' ',bty='n')
+  } else {
+    tmp <- legend(location,legend=label,bg=bg,border=bg,text.col=bg,bty='o')
+  }
+  
+  xt <- tmp$rect$left # + tmp$rect$w
+  yt <- tmp$text$y
+  
+  pos <- 4
+  tmp <- grep('right',location)
+  if(length(tmp) > 0)pos <- 2
+  
+  XX <- par()$xlog
+  YY <- par()$ylog
+  
+  if(XX)xt <- 10^xt
+  if(YY)yt <- 10^yt
+  
+  text(xt,yt,label,cex=cex,font=font,pos=pos)
+}
+
