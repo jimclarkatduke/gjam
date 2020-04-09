@@ -1,4 +1,5 @@
 
+
 colF <- colorRampPalette( c('#8c510a','#d8b365','#c7eae5','#5ab4ac','#01665e','#2166ac') )
 
 colT <- colorRampPalette( c('#8c510a','#d8b365','#c7eae5','#5ab4ac','#01665e','#2166ac') )
@@ -27,6 +28,75 @@ mergeList <- function( list1, list2 ){
   tmp
 }
 
+buildGuildTraits <- function(ydata, traitTable, traitNames, 
+                             traitCode = 'code6', minCooccur=5,
+                             diagTrait = -1){
+  # competitive guilds
+  # traitCode  - column in traitTable that matches colnames of ydata
+  # traitNames - columns in traitTable holding traits used to define guilds
+  #            - columns are characters, factors, or integers
+  
+  
+  nt   <- length(traitNames)
+  levs <- vector('list', nt )   # levels for each trait
+  names(levs) <- traitNames
+  
+  for(k in 1:nt){
+    levs[[k]] <- sort(unique(traitTable[,traitNames[k]]))
+  }
+  groups <- expand.grid( levs )
+  
+  gnames <- apply( groups, 1, paste0, collapse = '_' )
+  mm <- match(ynames, traitTable[,traitCode])
+  tdata  <- traitTable[mm, traitNames]
+  tnames <- apply( tdata, 1, paste0, collapse = '_' )
+  tcodes <- match(tnames, gnames)
+  
+  nall   <- sort(unique(tnames))
+  tall   <- sort(unique(tcodes))
+  
+  ng <- length(nall)
+  guildList <- vector( 'list', ng  )
+  names(guildList) <- nall
+  
+  # below interaction threshold
+  ynames <- colnames(ydata)
+  ty <- as.matrix( ydata ) 
+  ty[ ty != 0 ] <- 1
+  tt <- crossprod(ty)
+  tt[ tt < minCooccur ] <- 0
+  tt[ tt > 0 ] <- 1
+  
+  for(i in 1:length(tall)){          # not in same guild
+    ii <- tall[i]
+    wi <- which(tcodes == ii)
+    wj <- which(tcodes != ii)
+  #  tii <- tt[wi,wi, drop=F]
+  #  tij <- tt[wi,wj, drop=F]
+    
+    tt[wi,wj] <- 0
+    tt[wj,wi] <- 0
+    guildList[[i]] <- wi
+  }
+#  diag(tt) <- diagTrait
+  zeros <- which(tt == 0, arr.ind=T)
+  ones  <- which(tt == 1, arr.ind=T)
+  fromTo <- rbind( ones, ones[,2:1])
+  
+  g  <- sort(unique(ones[,1]))
+  gl <- numeric(0)
+  for(k in 1:length(g)){
+    ik <- which(ones[,1] == g[k])
+    jk <- ones[ik, 2]
+    jk <- sort( unique( c(ik, jk) ) )
+    gl <- append(gl, list(jk))
+  }
+  
+  attr(guildList, 'traitNames') <- traitNames
+  
+  list(alpha = tt, zeroAlpha = zeros, guildList = guildList,
+       fromTo = fromTo)
+}
 
 gjamPredTime <- function(output, nsim = 10, quant = .05, minw = .1){
   
@@ -804,7 +874,7 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
   for(k in 1:length(priorList))assign( names(priorList)[k], priorList[[k]] )
   
   S <- ncol(ydata)
-  w <- ydata/edata
+  w <- as.matrix(ydata)/as.matrix(edata)
   n <- nrow(w)
   
   colnames(w) <- .cleanNames( colnames(w ) )
@@ -858,8 +928,8 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       wj <- wj[ !wj %in% timeZero ]
       
       if(length(wj) <= ncol(x)) next
-      dw <- w[ wj[ -1 ], ] - w[ wj[ -length(wj) ], ]
-      xj <- x[wj,][-1,]
+      dw <- w[ wj[ -1 ],] - w[ wj[ -length(wj) ], ]
+      xj <- x[wj,][-1,, drop=F]
       
       wv <- which( apply(xj, 2, var) > 0 )
       if(length(wv) == 0)next
@@ -1038,6 +1108,7 @@ foodWebDiagram <- function(S, guildList = NULL, predPrey = NULL, zeroAlpha = NUL
     
     fromTo <- numeric(0)
     for(k in 1:length(guildList)){
+      if( is.character(guildList[[k]]) )guildList[[k]] <- match(guildList[[k]],snames)
       ft <- as.matrix(expand.grid(guildList[[k]], guildList[[k]]))
       fromTo <- rbind(fromTo, ft)
     }
@@ -1049,7 +1120,7 @@ foodWebDiagram <- function(S, guildList = NULL, predPrey = NULL, zeroAlpha = NUL
     ww <- which(!duplicated(ft))
     ft <- ft[ww]
     fromTo <- fromTo[ww,]
-    zeroAlpha <- NULL
+ #   zeroAlpha <- NULL
   }
   
   if(!is.null(predPrey)){
@@ -1104,6 +1175,63 @@ foodWebDiagram <- function(S, guildList = NULL, predPrey = NULL, zeroAlpha = NUL
     graph <- create_graph(nodes_df = nodes, edges_df = edges)
     render_graph( graph,  layout = layout )
   }
+}
+
+lowerFirstLetter <- function(xx){
+  s <- unlist(strsplit(xx, " "))
+  s <- paste(tolower(substring(s, 1, 1)), substring(s, 2),
+             sep = "", collapse = " ")
+  unlist(strsplit(s, " "))
+}
+
+upperFirstLetter <- function(xx, FIRSTONLY = F){
+  
+  # FIRSTONLY - only first letter of first word when a string has multiple words
+  
+  if(FIRSTONLY){
+    return( paste(toupper(substring(xx, 1, 1)), substring(xx, 2),
+                  sep = "") )
+  }
+  s <- unlist(strsplit(xx, " "))
+  s <- paste(toupper(substring(s, 1, 1)), substring(s, 2),
+             sep = "", collapse = " ")
+  unlist(strsplit(s, " "))
+}
+columnSplit <- function(vec, sep='_', ASFACTOR = F, ASNUMERIC = FALSE,
+                        LASTONLY = FALSE){
+  
+  vec <- as.character(vec)
+  nc  <- length( strsplit(vec[1], sep, fixed  = TRUE)[[1]] )
+  
+  mat <- matrix( unlist( strsplit(vec, sep, fixed  = TRUE) ), ncol=nc, byrow  = TRUE )
+  if(LASTONLY & ncol(mat) > 2){
+    rnn <- mat[,1]
+    for(k in 2:(ncol(mat)-1)){
+      rnn <- columnPaste(rnn,mat[,k])
+    }
+    mat <- cbind(rnn,mat[,ncol(mat)])
+  }
+  if(ASNUMERIC){
+    mat <- matrix( as.numeric(mat), ncol=nc )
+  }
+  if(ASFACTOR){
+    mat <- data.frame(mat)
+  }
+  if(LASTONLY)mat <- mat[,2]
+  mat
+}
+
+columnPaste <- function(c1, c2, sep='-', NOSPACE = FALSE){
+  
+  c1    <- as.character(c1)
+  c2    <- as.character(c2)
+  if(NOSPACE){
+    c1   <- .replaceString(c1, ' ', '')
+    c2   <- .replaceString(c2, ' ', '')
+  }
+  c12   <- apply( cbind(c1, c2) , 1, paste0, collapse=sep)
+  
+  c12
 }
 
 
