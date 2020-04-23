@@ -47,7 +47,7 @@ buildGuildTraits <- function(ydata, traitTable, traitNames,
   groups <- expand.grid( levs )
   
   gnames <- apply( groups, 1, paste0, collapse = '_' )
-  mm <- match(ynames, traitTable[,traitCode])
+  mm     <- match(ynames, traitTable[,traitCode])
   tdata  <- traitTable[mm, traitNames]
   tnames <- apply( tdata, 1, paste0, collapse = '_' )
   tcodes <- match(tnames, gnames)
@@ -339,7 +339,7 @@ gjamPredTime <- function(output, nsim = 10, quant = .05, minw = .1){
   if( !BYGROUP ){   # a prediction grid for covariates
     
     sgrid <- 0
-    if(ngrid > 1)sgrid <- seq(-2.5, 2.5, length = ngrid)  # std devs for standardized x
+    if(ngrid > 1)sgrid <- seq(-2, 2, length = ngrid)  # std devs for standardized x
     
     grid <- vector( 'list', length(vxnames) )
     for(k in 1:length(vxnames)){
