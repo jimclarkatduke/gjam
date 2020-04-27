@@ -40,15 +40,28 @@ buildGuildTraits <- function(ydata, traitTable, traitNames,
   nt   <- length(traitNames)
   levs <- vector('list', nt )   # levels for each trait
   names(levs) <- traitNames
+  ynames <- colnames(ydata)
+  
+  mm <- match(ynames, traitTable[,traitCode])
+  wna <- which(is.na(mm))
+  if(length(wna) > 0)stop( paste0('missing from traitTable: ', ynames[wna],collapse=', ') )
+  
+  traitTab <- traitTable[mm ,]
   
   for(k in 1:nt){
-    levs[[k]] <- sort(unique(traitTable[,traitNames[k]]))
+    
+    tk <- traitTab[,traitNames[k]]
+    tk[is.na(tk)] <- 'UNKN'
+    
+    levs[[k]] <- sort(unique(tk))
+    traitTab[,traitNames[k]] <- tk
   }
   groups <- expand.grid( levs )
   
   gnames <- apply( groups, 1, paste0, collapse = '_' )
-  mm     <- match(ynames, traitTable[,traitCode])
-  tdata  <- traitTable[mm, traitNames]
+  mm     <- match(ynames, traitTab[,traitCode])
+  tdata  <- traitTab[mm, traitNames]
+
   tnames <- apply( tdata, 1, paste0, collapse = '_' )
   tcodes <- match(tnames, gnames)
   
@@ -59,8 +72,7 @@ buildGuildTraits <- function(ydata, traitTable, traitNames,
   guildList <- vector( 'list', ng  )
   names(guildList) <- nall
   
-  # below interaction threshold
-  ynames <- colnames(ydata)
+  # below co-occurence threshold
   ty <- as.matrix( ydata ) 
   ty[ ty != 0 ] <- 1
   tt <- crossprod(ty)
@@ -860,8 +872,32 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
   xx
 }
 
+
+getDesign <- function(form, xdata){
+  
+  xm <- xs <- NULL
+  
+  tmp <- model.frame(form, data=xdata, na.action=NULL) # standardized design
+  x   <- model.matrix(form, data=tmp)
+  
+  # do not center intercept or factors
+  wf <- names( which( attr(attributes(tmp)$terms, 'dataClasses') == 'factor' ) )
+  wf <- which( startsWith(colnames(x), wf ) )
+  wf <- c(1, wf)
+  wp <- c(1:ncol(x))[-wf]
+  
+  if(length(wp) > 0){
+    xm  <- colMeans(x, na.rm=T)
+    xs  <- apply(x, 2, sd, na.rm=T)
+    x[,wp]   <- t( (t(x[,wp]) - xm[wp])/xs[wp]  )
+  }
+  
+  list(x = x, xmean = xm, xsd = xs)
+  
+}
+
 gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5, 
-                           betaMax = 30, rhoMax = 1 ){
+                           betaMax = 10, rhoMax = 1 ){
   
   # minSign - minimum number of co-occurrences to estimate alpha
   
@@ -876,8 +912,14 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
   S <- ncol(ydata)
   w <- as.matrix(ydata)/as.matrix(edata)
   n <- nrow(w)
+  ynames <- colnames(ydata)
   
   colnames(w) <- .cleanNames( colnames(w ) )
+  
+  maxw <- apply(w, 2, max)
+  quaw <- apply(w,2, quantile, c(.1, .9), na.rm=T)
+  ranw <- apply(quaw, 2, diff)
+  ranw[ ranw == 0 ] <- maxw[ ranw == 0 ]/5
   
   
   if(!is.null(betaPrior))termB <- TRUE
@@ -886,26 +928,16 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
   
   if( 'formulaBeta' %in% names(priorList) )termB <- TRUE
   
+  # variance in dy
+  gr  <- unique(xdata$groups)
+  nr  <- length(gr)
+  
   if(termB){  # only XB
     
     timeZero <- grep('-0', rownames(ydata)) # rownames from gjamFillMissing
     timeLast <- c( timeZero - 1, nrow(ydata))[-1]
     
-    tmp <- model.frame(formulaBeta, data=xdata, na.action=NULL) # standardized design
-    
-    x   <- model.matrix(formulaBeta, data=tmp)
-    
-    # do not center intercept or factors
-    wf <- names( which( attr(attributes(tmp)$terms, 'dataClasses') == 'factor' ) )
-    wf <- which( startsWith(colnames(x), wf ) )
-    wf <- c(1, wf)
-    wp <- c(1:ncol(x))[-wf]
-    
-    if(length(wp) > 0){
-      xm  <- colMeans(x, na.rm=T)
-      xs  <- apply(x, 2, sd, na.rm=T)
-      x[,wp]   <- t( (t(x[,wp]) - xm[wp])/xs[wp]  )
-    }
+    x <- getDesign(formulaBeta, xdata)$x
     
     kname <- as.vector( outer( colnames(x), colnames(w), FUN = paste, sep='-') )
     
@@ -914,10 +946,6 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     rownames(blo) <- colnames(x)
     colnames(blo) <- colnames(ydata)
     bhi <- -blo
-    
-    # variance in dy
-    gr  <- unique(xdata$groups)
-    nr  <- length(gr)
     
     sumw <- sumw2 <- rep(0, ncol(w))
     sumx <- sumx2 <- rep(0, ncol(x))
@@ -929,11 +957,17 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       
       if(length(wj) <= ncol(x)) next
       dw <- w[ wj[ -1 ],] - w[ wj[ -length(wj) ], ]
+      rw <- matrix( ranw, nrow(dw), ncol(dw), byrow=T)
+      dw[dw > rw]  <- rw[dw > rw]
+      dw[dw < -rw] <- rw[dw < -rw]
+      
       xj <- x[wj,][-1,, drop=F]
       
       wv <- which( apply(xj, 2, var) > 0 )
       if(length(wv) == 0)next
       bb <- solve( crossprod(xj[,wv]) )%*%crossprod(xj[,wv], dw)
+      
+      if(max(abs(bb)) > 5)stop()
       
       bx <- blo
       bx[rownames(bb),] <- bb
@@ -954,13 +988,14 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     xsd <- sqrt( sumx2/nrow(x) - (sumx/nrow(x))^2 )
     xsd[1] <- 1
     
-    wx  <- matrix(wsd, length(xsd), length(wsd), byrow=T)/matrix(xsd, length(xsd), length(wsd) )
+    wx  <- matrix(wsd, length(xsd), length(wsd), byrow=T)/
+      matrix(xsd, length(xsd), length(wsd) )
     
     blo[ blo == 0 | !is.finite(blo) ] <- -wx[ blo == 0 | !is.finite(blo) ]
     bhi[ bhi == 0 | !is.finite(bhi) ] <-  wx[ bhi == 0 | !is.finite(bhi) ]
     
-    bl <- blo - 2*abs(blo)
-    bh <- bhi + 2*abs(bhi)
+    bl <- blo - 1.2*abs(blo)
+    bh <- bhi + 1.2*abs(bhi)
     rownames(bl)[1] <- rownames(bh)[1] <- 'intercept'
     
     blo[ blo < -betaMax ] <- -betaMax
@@ -984,25 +1019,84 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       bhi <- bh
     }
     
-    
     bp  <- list(lo = blo, hi = bhi )
   }
   
   if(termR){  # rho
-    if( !is.list(rhoPrior) ){
-      lp <- NULL
-    }else{
-      formulaRho <- priorList$formulaRho
-      if(is.null(formulaRho)){
-        cat('\nformulaRho omitted from priorList, used ~1\n')
+    
+    x   <- getDesign(formulaRho, xdata)$x
+    colnames(x)[1] <- 'intercept'
+    rlo <- rhoPrior$lo$intercept
+    rhi <- rhoPrior$hi$intercept
+    
+    if(is.null(rlo))rlo <- -.1
+    if(is.null(rhi))rhi <- .2
+    
+    if(length(rlo) == 1)rlo <- rep(rlo, S)
+    if(length(rhi) == 1)rhi <- rep(rhi, S)
+    
+    sumb <- sumn <- matrix(0, ncol(x), S)
+    rownames(sumb) <- colnames(x)
+    colnames(sumb) <- ynames
+    
+    
+    for(j in gr){
+      
+      wj <- which(xdata[,'groups'] == j & is.finite(rowSums(x)) &
+                    is.finite(rowSums(w)))
+      wj <- wj[ !wj %in% timeZero ]
+      
+      yj <- w[ wj[ -length(wj) ], ] + matrix(wmin,length(wj)-1,S, byrow=T)
+      
+      dw <- w[drop=F, wj[ -1 ],] - w[ wj[ -length(wj) ], ]
+      rw <- matrix( ranw, nrow(dw), ncol(dw), byrow=T)
+      dw[dw > rw]  <- rw[dw > rw]
+      dw[dw < -rw] <- rw[dw < -rw]
+      dw  <- dw/yj                   # per capita
+      SS  <- F
+      if(length(wj) > ncol(x)){         
+        xj <- x[wj,][-1,, drop=F]
+        bb <- solve( crossprod(xj) )%*%crossprod(xj, dw)
+        
+        ww <- which(bb[1,] > rhi)   # intercept outside prior
+        if(length(ww) > 0){
+          bb[1,ww] <- rhi[ww]
+          SS <- T
+        }
+        ww <- which(bb[1,] < rlo)
+        if(length(ww) > 0){
+          bb[1,ww] <- rlo[ww]
+          SS <- T
+        }
+        if(SS){
+          dx <- dw - matrix(bb[1,],nrow(dw),S)
+          bx <- solve( crossprod(xj[,-1]) )%*%crossprod(xj[,-1], dx)
+          bb[2:nrow(bb),] <- bx
+        }
       }
-      gg <- gjamPriorTemplate(formulaRho, xdata, ydata = ydata, 
-                              lo = rhoPrior$lo, hi = rhoPrior$hi)
-      lp <- list(lo = gg[[1]], hi = gg[[2]])
+      sumb[ bb != 0 ] <- sumb[ bb != 0 ] + bb[ bb != 0 ]
+      sumn[ bb != 0 ] <- sumn[ bb != 0 ] + 1
     }
     
-    lp$lo[ lp$lo < -betaMax ] <- -betaMax
-    lp$hi[ lp$hi > betaMax ]  <- betaMax
+    rm <- sumb/sumn
+    rl <- -1.5*abs(rm)
+    rh <- -rl
+    rl[1, rl[1,] < rlo ] <- rlo[rl[1,] < rlo]
+    rh[1, rh[1,] > rhi ] <- rhi[rh[1,] > rhi]
+    
+    for(k in 1:length(rhoPrior$lo)){
+      lk <- rhoPrior$lo[[k]]
+      nk <- names(rhoPrior$lo)[k]
+      rl[nk,rl[nk, ] < lk] <- lk
+    }
+    for(k in 1:length(rhoPrior$hi)){
+      lk <- rhoPrior$hi[[k]]
+      nk <- names(rhoPrior$hi)[k]
+      rh[nk,rh[nk, ] > lk] <- lk
+    }
+    
+    lp <- list(lo = rl, hi = rh)
+    
   }
   
   if(termA){  # alpha
@@ -1030,6 +1124,11 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       timeZero <- which(xdata$times == 0)
       timeLast <- (timeZero - 1)[-1]
       wt <- unique( c(timeZero, timeLast) )
+      
+      quanw <- apply(w, 2, quantile, .9, na.rm=T)
+      maxw  <- apply(w, 2, max, na.rm=T)/2
+      maxw[quanw > 0] <- quanw[ quanw > 0]
+      minw  <- maxw/20
 
       wmu    <- colMeans( w, na.rm=T )
       wdelta <- apply( w, 2, diff )  # pop rate
@@ -1046,7 +1145,9 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
    #   wd[ !is.finite(wd) ] <- 0
    #   wd[ wd >  rmat ] <- rmat[ wd > rmat ]
       
-      ww <- n/crossprod(w)
+      wplus <- w + matrix(minw, nrow(w), S, byrow=T)
+      
+      ww <- n/crossprod(wplus)
       wrange <- apply(wdelta, 2, quantile, c(.05,.95), na.rm=T)
       wrange[1, wrange[1,] >= 0 ] <- mean( wrange[1, wrange[1,] < 0 ] )
       wrange[2, wrange[2,] <= 0 ] <- mean( wrange[2, wrange[2,] > 0 ] )
@@ -1054,8 +1155,7 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       wlo <- matrix(wrange[1,], S, S, byrow=T)*ww   # E[dw]/E[w_s * w_s']
       whi <- matrix(wrange[2,], S, S, byrow=T)*ww   # E[dw]/E[w_s * w_s']
       
-      rw  <- apply( w, 2, quantile, .8, na.rm = T)
-      rlh <- matrix( rho/rw, S, S, byrow= T) # rho/w_s
+      rlh <- matrix( rho/maxw, S, S, byrow= T) # rho/w_s
       
       whi[ whi > rlh ]  <- rlh[ whi > rlh ] 
       wlo[ wlo < -rlh ] <- -rlh[ wlo < -rlh ] 
