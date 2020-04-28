@@ -921,6 +921,8 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
   ranw <- apply(quaw, 2, diff)
   ranw[ ranw == 0 ] <- maxw[ ranw == 0 ]/5
   
+  wmin <- quaw[1,]
+  wmin[ wmin == 0] <- ranw[wmin == 0]/20
   
   if(!is.null(betaPrior))termB <- TRUE
   if(!is.null(rhoPrior)) termR <- TRUE
