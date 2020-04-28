@@ -969,8 +969,6 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       if(length(wv) == 0)next
       bb <- solve( crossprod(xj[,wv]) )%*%crossprod(xj[,wv], dw)
       
-      if(max(abs(bb)) > 5)stop()
-      
       bx <- blo
       bx[rownames(bb),] <- bb
       blo[bx < blo] <- bx[bx < blo]
