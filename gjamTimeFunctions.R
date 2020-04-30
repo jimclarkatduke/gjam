@@ -934,10 +934,10 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
   gr  <- unique(xdata$groups)
   nr  <- length(gr)
   
+  timeZero <- grep('-0', rownames(ydata)) # rownames from gjamFillMissing
+  timeLast <- c( timeZero - 1, nrow(ydata))[-1]
+  
   if(termB){  # only XB
-    
-    timeZero <- grep('-0', rownames(ydata)) # rownames from gjamFillMissing
-    timeLast <- c( timeZero - 1, nrow(ydata))[-1]
     
     x <- getDesign(formulaBeta, xdata)$x
     
@@ -1026,49 +1026,72 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     
     x   <- getDesign(formulaRho, xdata)$x
     colnames(x)[1] <- 'intercept'
-    rlo <- rhoPrior$lo$intercept
-    rhi <- rhoPrior$hi$intercept
     
-    if(is.null(rlo))rlo <- -.1
-    if(is.null(rhi))rhi <- .2
+    mlo <- matrix(-Inf, ncol(x), S)
+    colnames(mlo) <- ynames
+    rownames(mlo) <- colnames(x)
+    mhi <- -mlo
     
-    if(length(rlo) == 1)rlo <- rep(rlo, S)
-    if(length(rhi) == 1)rhi <- rep(rhi, S)
+    dw <- w[-timeZero,] - w[-timeLast,]
+    xj <- x[-timeLast,]
+    XX <- crossprod(xj)
+    XI <- try( solve(XX), T)
+    if( !inherits(XI,'try-error') ){
+      bb <- XI%*%crossprod(xj, dw)
+      rownames(bb) <- colnames(x)
+      mlo <- -2*abs(bb)
+      mhi <- 2*abs(bb)
+    }
     
-    sumb <- sumn <- matrix(0, ncol(x), S)
-    rownames(sumb) <- colnames(x)
-    colnames(sumb) <- ynames
     
+    for(k in 1:length(rhoPrior$lo)){
+      rlo <- rhoPrior$lo[[k]]
+      if(length(rlo) == 1)rlo <- rep(rlo, S)
+      mlo[ names(rhoPrior$lo)[k], ] <- rlo
+    }
+    for(k in 1:length(rhoPrior$hi)){
+      rhi <- rhoPrior$hi[[k]]
+      if(length(rhi) == 1)rhi <- rep(rhi, S)
+      mhi[ names(rhoPrior$hi)[k], ] <- rhi
+    }
+    
+    sumb <- (mlo + mhi)/2
+    sumn <- mlo*0 + 1
     
     for(j in gr){
       
       wj <- which(xdata[,'groups'] == j & is.finite(rowSums(x)) &
                     is.finite(rowSums(w)))
       wj <- wj[ !wj %in% timeZero ]
+      w0 <- wj - 1
       
-      yj <- w[ wj[ -length(wj) ], ] + matrix(wmin,length(wj)-1,S, byrow=T)
+      yj <- w[ wj, ] + matrix(wmin,length(wj),S, byrow=T)
       
-      dw <- w[drop=F, wj[ -1 ],] - w[ wj[ -length(wj) ], ]
+      dw <- w[drop=F, wj,] - w[drop=F, w0, ]
       rw <- matrix( ranw, nrow(dw), ncol(dw), byrow=T)
       dw[dw > rw]  <- rw[dw > rw]
       dw[dw < -rw] <- rw[dw < -rw]
       dw  <- dw/yj                   # per capita
       SS  <- F
-      if(length(wj) > ncol(x)){         
-        xj <- x[wj,][-1,, drop=F]
-        bb <- solve( crossprod(xj) )%*%crossprod(xj, dw)
+      if( length(wj) > ncol(x) ){     
         
-        ww <- which(bb[1,] > rhi)   # intercept outside prior
+        xj <- x[drop=F,w0,]
+        XX <- crossprod(xj)
+        XI <- try( solve(XX), T)
+        if( inherits(XI,'try-error') )next
+        bb <- XI%*%crossprod(xj, dw)
+        
+        ww <- which(bb[1,] > mhi[1,])   # intercept outside prior
         if(length(ww) > 0){
-          bb[1,ww] <- rhi[ww]
+          bb[1,ww] <- mhi[1,ww]
           SS <- T
         }
-        ww <- which(bb[1,] < rlo)
+        ww <- which(bb[1,] < mlo[1,])
         if(length(ww) > 0){
-          bb[1,ww] <- rlo[ww]
+          bb[1,ww] <- mlo[1,ww]
           SS <- T
         }
-        if(SS){
+        if(SS & ncol(x) > 1){
           dx <- dw - matrix(bb[1,],nrow(dw),S)
           bx <- solve( crossprod(xj[,-1]) )%*%crossprod(xj[,-1], dx)
           bb[2:nrow(bb),] <- bx
@@ -1079,21 +1102,11 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     }
     
     rm <- sumb/sumn
+    rm[ !is.finite(rm) ] <- 0
     rl <- -1.5*abs(rm)
     rh <- -rl
-    rl[1, rl[1,] < rlo ] <- rlo[rl[1,] < rlo]
-    rh[1, rh[1,] > rhi ] <- rhi[rh[1,] > rhi]
-    
-    for(k in 1:length(rhoPrior$lo)){
-      lk <- rhoPrior$lo[[k]]
-      nk <- names(rhoPrior$lo)[k]
-      rl[nk,rl[nk, ] < lk] <- lk
-    }
-    for(k in 1:length(rhoPrior$hi)){
-      lk <- rhoPrior$hi[[k]]
-      nk <- names(rhoPrior$hi)[k]
-      rh[nk,rh[nk, ] > lk] <- lk
-    }
+    rl[ rl[1,] > mlo[1,] ] <- mlo[rl[1,] > mlo[1,] ]
+    rh[ rh[1,] < mhi[1,] ] <- mhi[rh[1,] < mhi[1,] ]
     
     lp <- list(lo = rl, hi = rh)
     
