@@ -952,50 +952,36 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     sumw <- sumw2 <- rep(0, ncol(w))
     sumx <- sumx2 <- rep(0, ncol(x))
     
+    xxj <- ddw <- numeric(0)
+    
     for(j in gr){
       wj <- which(xdata[,'groups'] == j & is.finite(rowSums(x)) &
                     is.finite(rowSums(w)))
       wj <- wj[ !wj %in% timeZero ]
       
-      if(length(wj) <= ncol(x)) next
-      dw <- w[ wj[ -1 ],] - w[ wj[ -length(wj) ], ]
+      dw <- w[ drop = F, wj[ -1 ],] - w[ drop = F, wj[ -length(wj) ], ]
       rw <- matrix( ranw, nrow(dw), ncol(dw), byrow=T)
       dw[dw > rw]  <- rw[dw > rw]
       dw[dw < -rw] <- rw[dw < -rw]
       
       xj <- x[wj,][-1,, drop=F]
       
-      wv <- which( apply(xj, 2, var) > 0 )
-      if(length(wv) == 0)next
-      bb <- solve( crossprod(xj[,wv]) )%*%crossprod(xj[,wv], dw)
-      
-      bx <- blo
-      bx[rownames(bb),] <- bb
-      blo[bx < blo] <- bx[bx < blo]
-      
-      bx <- bhi
-      bx[rownames(bb),] <- bb
-      bhi[bx > bhi] <- bx[bx > bhi]
-      
-      sumw  <- sumw + colSums(dw)
-      sumw2 <- sumw2 + colSums(dw^2)
-      sumx  <- sumx + colSums(xj)
-      sumx2 <- sumx2 + colSums(xj^2)
+      xxj <- rbind(xxj, xj)
+      ddw <- rbind(ddw, dw)
     }
     
-    # variables that are fixed within a group
-    wsd <- sqrt( sumw2/nrow(x) - (sumw/nrow(x))^2 )
-    xsd <- sqrt( sumx2/nrow(x) - (sumx/nrow(x))^2 )
-    xsd[1] <- 1
+    IXX <- solve( crossprod(xxj) )
+    WX  <- crossprod(xxj,ddw)
+    bb <- IXX%*%WX
     
-    wx  <- matrix(wsd, length(xsd), length(wsd), byrow=T)/
-      matrix(xsd, length(xsd), length(wsd) )
+    sig <- crossprod( ddw - xxj%*%bb )
+    bvr  <- kronecker(sig,IXX)
     
-    blo[ blo == 0 | !is.finite(blo) ] <- -wx[ blo == 0 | !is.finite(blo) ]
-    bhi[ bhi == 0 | !is.finite(bhi) ] <-  wx[ bhi == 0 | !is.finite(bhi) ]
+    bsd  <- matrix( sqrt(diag(bvr)), nrow(bb), ncol(bb) )
     
-    bl <- blo - 1.2*abs(blo)
-    bh <- bhi + 1.2*abs(bhi)
+    bl <- bb - 10*bsd
+    bh <- bb + 10*bsd
+    
     rownames(bl)[1] <- rownames(bh)[1] <- 'intercept'
     
     blo[ blo < -betaMax ] <- -betaMax
