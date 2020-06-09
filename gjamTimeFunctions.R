@@ -1013,7 +1013,7 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     x   <- getDesign(formulaRho, xdata)$x
     colnames(x)[1] <- 'intercept'
     
-    mlo <- matrix(-Inf, ncol(x), S)
+    mlo <- matrix(-10, ncol(x), S)
     colnames(mlo) <- ynames
     rownames(mlo) <- colnames(x)
     mhi <- -mlo
@@ -1059,9 +1059,28 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       dw[dw < -rw] <- rw[dw < -rw]
       dw  <- dw/yj                   # per capita
       SS  <- F
+      
       if( length(wj) > ncol(x) ){     
         
         xj <- x[drop=F,w0,]
+        
+        wm <- which( is.na(xj), arr.ind=T )
+        if(length(wm) > 0){
+          ic <- unique(wm[,2])
+          for( m in 1:nrow(wm) ){
+            xm  <- xj[, wm[m,2] ]
+            tt  <- 1:length(xm)
+            
+            xsm <- lm(xm ~ tt, na.action = na.omit)
+            xmiss <- predict( xsm, newdata = data.frame(tt = tt) )
+            
+            xm[ is.na(xm) ] <- xmiss[ is.na(xm) ]
+            xj[, wm[m,2] ] <- xm
+          }
+          x[w0,] <- xj
+        }
+        
+        
         XX <- crossprod(xj)
         XI <- try( solve(XX), T)
         if( inherits(XI,'try-error') )next
@@ -1085,6 +1104,20 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       }
       sumb[ bb != 0 ] <- sumb[ bb != 0 ] + bb[ bb != 0 ]
       sumn[ bb != 0 ] <- sumn[ bb != 0 ] + 1
+    }
+    
+    if( is.na(range(mlo)[1]) | is.na(range(mhi)[1]) ){
+      
+      dw <- w[-timeZero,] - w[-timeLast,]
+      xj <- x[-timeLast,]
+      XX <- crossprod(xj)
+      XI <- try( solve(XX), T)
+      if( !inherits(XI,'try-error') ){
+        bb <- XI%*%crossprod(xj, dw)
+        rownames(bb) <- colnames(x)
+        mlo <- -2*abs(bb)
+        mhi <- 2*abs(bb)
+      }
     }
     
     rm <- sumb/sumn
