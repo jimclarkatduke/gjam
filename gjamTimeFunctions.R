@@ -1405,3 +1405,12 @@ columnPaste <- function(c1, c2, sep='-', NOSPACE = FALSE){
   text(xt,yt,label,cex=cex,font=font,pos=pos)
 }
 
+.getColor <- function(col,trans){
+  
+  # trans - transparency fraction [0, 1]
+  
+  tmp <- col2rgb(col)
+  rgb(tmp[1,], tmp[2,], tmp[3,], maxColorValue = 255, 
+      alpha = 255*trans, names = paste(col,trans,sep='_'))
+}
+
