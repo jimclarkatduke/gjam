@@ -958,13 +958,14 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       wj <- which(xdata[,'groups'] == j & is.finite(rowSums(x)) &
                     is.finite(rowSums(w)))
       wj <- wj[ !wj %in% timeZero ]
+      if(length(wj) < 2)next
       
       dw <- w[ drop = F, wj[ -1 ],] - w[ drop = F, wj[ -length(wj) ], ]
       rw <- matrix( ranw, nrow(dw), ncol(dw), byrow=T)
       dw[dw > rw]  <- rw[dw > rw]
       dw[dw < -rw] <- rw[dw < -rw]
       
-      xj <- x[wj,][-1,, drop=F]
+      xj <- x[drop=F, wj,][-1,, drop=F]
       
       xxj <- rbind(xxj, xj)
       ddw <- rbind(ddw, dw)
@@ -1048,6 +1049,7 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       
       wj <- which(xdata[,'groups'] == j & is.finite(rowSums(x)) &
                     is.finite(rowSums(w)))
+      if(length(wj) < 2)next
       wj <- wj[ !wj %in% timeZero ]
       w0 <- wj - 1
       
@@ -1080,7 +1082,6 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
           x[w0,] <- xj
         }
         
-        
         XX <- crossprod(xj)
         XI <- try( solve(XX), T)
         if( inherits(XI,'try-error') )next
@@ -1101,9 +1102,10 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
           bx <- solve( crossprod(xj[,-1]) )%*%crossprod(xj[,-1], dx)
           bb[2:nrow(bb),] <- bx
         }
+        
+        sumb[ bb != 0 ] <- sumb[ bb != 0 ] + bb[ bb != 0 ]
+        sumn[ bb != 0 ] <- sumn[ bb != 0 ] + 1
       }
-      sumb[ bb != 0 ] <- sumb[ bb != 0 ] + bb[ bb != 0 ]
-      sumn[ bb != 0 ] <- sumn[ bb != 0 ] + 1
     }
     
     if( is.na(range(mlo)[1]) | is.na(range(mhi)[1]) ){
@@ -1166,16 +1168,6 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       wdelta <- apply( w, 2, diff )  # pop rate
       wdelta[!is.finite(wdelta) ] <- 0
       wdelta <- wdelta[-wt,]
-      
-      ##############
-   #   rmat <- matrix(rho, n-1, S, byrow=T) 
-   #   wdelta[ wdelta >  rmat ] <- rmat[ wdelta > rmat ]
-   #   wi <- 1/w[-n,]
-      
-   #   wi[ !is.finite(wi) ] <- 0
-   #   wd <- wdelta*wi
-   #   wd[ !is.finite(wd) ] <- 0
-   #   wd[ wd >  rmat ] <- rmat[ wd > rmat ]
       
       wplus <- w + matrix(minw, nrow(w), S, byrow=T)
       
