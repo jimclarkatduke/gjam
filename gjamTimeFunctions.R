@@ -889,6 +889,9 @@ getDesign <- function(form, xdata){
   if(length(wp) > 0){
     xm  <- colMeans(x, na.rm=T)
     xs  <- apply(x, 2, sd, na.rm=T)
+    
+    w0 <- which(xs[-1] == 0)
+    if(length(w0) > 0)stop( paste('no variation in predictor', names(xs)[w0-1]) )
     x[,wp]   <- t( (t(x[,wp]) - xm[wp])/xs[wp]  )
   }
   
