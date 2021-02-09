@@ -1168,14 +1168,21 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       minw  <- maxw/20
 
       wmu    <- colMeans( w, na.rm=T )
-      wdelta <- apply( w, 2, diff )  # pop rate
+      wdelta <- apply( w, 2, diff )  # growth rates
       wdelta[!is.finite(wdelta) ] <- 0
-      wdelta <- wdelta[-wt,]
+      wdelta <- wdelta[-wt,]         # exclude first and last
       
       wplus <- w + matrix(minw, nrow(w), S, byrow=T)
       
       ww <- n/crossprod(wplus)
       wrange <- apply(wdelta, 2, quantile, c(.05,.95), na.rm=T)
+      
+      w0 <- which( wrange[1,] == wrange[2,] )
+      if(length(w0) > 0){
+        wrange[1,w0] <- wrange[1,w0] - 1
+        wrange[2,w0] <- wrange[2,w0] + 1
+      }
+      
       wrange[1, wrange[1,] >= 0 ] <- mean( wrange[1, wrange[1,] < 0 ] )
       wrange[2, wrange[2,] <= 0 ] <- mean( wrange[2, wrange[2,] > 0 ] )
       
@@ -1324,6 +1331,7 @@ upperFirstLetter <- function(xx, FIRSTONLY = F){
              sep = "", collapse = " ")
   unlist(strsplit(s, " "))
 }
+
 columnSplit <- function(vec, sep='_', ASFACTOR = F, ASNUMERIC = FALSE,
                         LASTONLY = FALSE){
   
