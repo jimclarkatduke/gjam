@@ -1033,7 +1033,6 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       mhi <- 2*abs(bb)
     }
     
-    
     for(k in 1:length(rhoPrior$lo)){
       rlo <- rhoPrior$lo[[k]]
       if(length(rlo) == 1)rlo <- rep(rlo, S)
@@ -1127,7 +1126,8 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     
     rm <- sumb/sumn
     rm[ !is.finite(rm) ] <- 0
-    rl <- -1.5*abs(rm)
+  #  rl <- -1.5*abs(rm)
+    rl <- mlo
     rh <- -rl
     rl[ rl[1,] > mlo[1,] ] <- mlo[rl[1,] > mlo[1,] ]
     rh[ rh[1,] < mhi[1,] ] <- mhi[rh[1,] < mhi[1,] ]
