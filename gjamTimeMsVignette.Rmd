@@ -28,10 +28,10 @@ Clark, J. S., C. L. Scher, and M. Swift. 2020. The emergent interactions that go
 library(MASS)
 
 # from source files:
-source("/Users/jimclark/GJAM/makeGJAMcurrent/RFunctions/gjamHfunctions.R")
-source("/Users/jimclark/GJAM/makeGJAMcurrent/RFunctions/gjamTrimY.r")
-source("/Users/jimclark/GJAM/makeGJAMcurrent/RFunctions/gjamPriorTemplate.R")
-Rcpp::sourceCpp('/Users/jimclark/GJAM/makeGJAMcurrent/RcppFunctions/cppFns.cpp')
+source("/Users/jimclark/Documents/GJAM/makeGJAMcurrent/RFunctions/gjamHfunctions.R")
+source("/Users/jimclark/Documents/GJAM/makeGJAMcurrent/RFunctions/gjamTrimY.r")
+source("/Users/jimclark/Documents/GJAM/makeGJAMcurrent/RFunctions/gjamPriorTemplate.R")
+Rcpp::sourceCpp('/Users/jimclark/Documents/GJAM/makeGJAMcurrent/RcppFunctions/cppFns.cpp')
 ```
 
 ## Additional functions for this vignette
@@ -108,7 +108,6 @@ Recall, the effort `matrix edata` controls the weight of the observations.
 The argument `groupVars` identifies those columns in `xdata` that are fixed for the group, so they can be filled in by `gjamFillMissingTimes`.  In other words, `groupVars` do not change over time.  These are count data, so the `typeNames = 'DA'`, i.e., 'discrete abundance`.
 
 ```{r, eval = F}
-
 timeCol   <- 'times'
 groupCol  <- 'groups'
 groupVars <- c( 'groups' )
@@ -296,7 +295,6 @@ A dynamic community is simulated by specifying species pairs that are predator-p
 
 
 ```{r}
-
 S     <- 6     # no. species
 nsite <- 10    # no. time series
 ntime <- 100
@@ -314,13 +312,11 @@ zeroAlpha <- rbind( c(1, 2), c(2, 1),                      # second position doe
                     c(2, 6), c(6, 2))                     
 
 foodWebDiagram(S, predPrey = predPrey, zeroAlpha = zeroAlpha)
-
 ```
 
 In this diagram, red arrows are negative (predation), blue are positive (prey effect on predator), and brown arrows are (negative) competition.  Here is a simulation:
 
 ```{r, eval = F}
-
 seed <- 999
 set.seed( seed )
 tmp <- gjamSimTime(S, Q = 0, nsite, ntime, termB, termR, termA, 
@@ -352,13 +348,11 @@ edata  <- tmp$edata
 tlist  <- tmp$timeList
 snames <- colnames(ydata)
 effort <- list(columns = 1:S, values = edata)
-
 ```
 
 I set wide prior on DI population growth rate (up to 30% increase per year) and interaction coefficients.  In `alphaSign` I specify the sign of interactions in for the interaction matrix $\mathbf{\alpha}$ as (-1, 0, 1) to indicate negative, no interaction, and positive, respectively.
 
 ```{r, eval = F}
-
 rhoPrior <- list(lo = list(intercept = 0), hi = list(intercept = .3) )
 
 alphaSign  <- matrix(-1, S, S)
@@ -378,7 +372,6 @@ timeList <- mergeList(tlist, tmp)
 Here is model fitting:
 
 ```{r, eval = F}
-
 modelList <- list(typeNames = 'DA', ng = 8000, burnin = 4000,  
            timeList = timeList, effort = effort) 
 
@@ -944,7 +937,7 @@ foodWebDiagram(S, guildList, label = snames, intraComp = 1:S)
 
 fromTo <- foodWebDiagram(S, guildList, PLOT = F)
 
-formulaBeta <- as.formula(~ StartWind)
+formulaBeta <- as.formula(~ StartWind + juneTemp)
 formulaRho <- as.formula(~ defSite + juneTemp + nlcd)
 
 hi <- list(intercept = Inf, StartWind2 = 0, StartWind3 = 0, StartWind4 = 0)
@@ -966,6 +959,12 @@ priorList <- list( formulaBeta = formulaBeta, formulaRho = formulaRho,
                    
 tmp <- gjamTimePrior( xdata, ydata, edata, priorList)
 
+#remove some irrelevant species-predictor combinations
+rp <- tmp$rhoPrior
+nc <- cbind('nlcdshrub','BlueJay')
+rp$lo[nc] <- rp$hi[nc] <- NA
+tmp$rhoPrior <- rp
+
 timeList <- mergeList(timeList, tmp)
 ```
 
@@ -974,10 +973,10 @@ Here are model fitting and plots:
 ```{r, eval = F}
 
 effort <- list(columns = 1:S, values = edata)
-modelList <- list( typeNames = 'DA', ng = 5000, burnin=2000, 
+modelList <- list( typeNames = 'DA', ng = 3000, burnin=1000, 
                    timeList=timeList, effort = effort)
 
-outputBBS <- gjam(formulaBeta, xdata=xdata, ydata=ydata, modelList=modelList)
+outputBBS <- .gjam(formulaBeta, xdata=xdata, ydata=ydata, modelList=modelList)
 
 specColor <- rep( '#000000' ,S) # black
 names(specColor) <- snames
@@ -989,21 +988,29 @@ for(j in 1:length(guildList)){
 plotPars <- list(specColor = specColor, GRIDPLOTS=T, PLOTALLY=T, SAVEPLOTS = T,
                  outFolder = 'gjamOutputBBS')
 gjamPlot(outputBBS, plotPars)
+save( outputBBS, file = 'gjamOutputBBS/outputBBS.rdata')
 ```
 
 Equilibrium abundances can be evaluated here:
 
 ```{r, eval = F}
-wstar <- .wrapperEquilAbund(outputBBS, covars = 'juneTemp',
-                            nsim = 100, ngrid = 9, BYFACTOR = T, 
+
+xm <- 'defSite'
+xm <- 'juneTemp'
+
+wstarTemp <- .wrapperEquilAbund(outputBBS, covars = 'juneTemp',
+                            nsim = 50, ngrid = 9, BYFACTOR = T, 
+                            verbose = T)
+wstarDef <- .wrapperEquilAbund(outputBBS, covars = 'defSite',
+                            nsim = 50, ngrid = 9, BYFACTOR = T, 
                             verbose = T)
 
-save(outputBBS, specColor, wstar, file='gjamOutputBBS/outputBBS.rdata')
+save(outputBBS, specColor, wstarTemp, wstarDef, file='gjamOutputBBS/outputBBS.rdata')
 
 notOther <- outputBBS$inputs$notOther
-ccMu <- wstar$ccMu[,notOther]
-ccSd <- wstar$ccSd[,notOther]
-ccx  <- wstar$x
+ccMu <- wstarDef$ccMu[,notOther]
+ccSd <- wstarDef$ccSd[,notOther]
+ccx  <- wstarDef$x
 
 cols <- colorRampPalette( c('#a6611a','#dfc27d','#80cdc1','#018571') )
 
@@ -1018,7 +1025,7 @@ coverType <- nlcd[ apply(coverType, 1, which.max) ]
 coverType <- .replaceString(coverType, 'nlcd','')
 
 
-SAVEPLOTS <- F
+SAVEPLOTS <- T
 outFolder <- 'gjamOutputBBS'
 
 types <- c( "dev",  "crop", "grassland","shrub",
@@ -1042,7 +1049,6 @@ add <- F
 o   <- 1:np
 o   <- o[o <= 16]
 
-xm <- 'juneTemp'
 
 for(p in 1:npage){
   
@@ -1053,17 +1059,17 @@ for(p in 1:npage){
   npp <- ncol(ccMu) - k
   if(npp > np)npp <- np 
   mfrow <- .getPlotLayout(np)
-  par(mfrow=mfrow$mfrow, bty='n', omi=c(.5,.5,0,0), mar=c(1,2,2,1))
+  par(mfrow=mfrow, bty='n', omi=c(.5,.5,0,0), mar=c(1,2,2,1))
   pj <- 1
   
   for(j in o){
     
     yy  <- ccMu[,j]
     
-    ct  <- tapply(yy, list(defSite = round(ccx[,'juneTemp'], 1), nlcd = coverType), mean)
-    cl  <- tapply(yy, list(defSite = round(ccx[,'juneTemp'], 1), nlcd = coverType), 
+    ct  <- tapply(yy, list(defSite = round(ccx[,xm], 1), nlcd = coverType), mean)
+    cl  <- tapply(yy, list(defSite = round(ccx[,xm], 1), nlcd = coverType), 
                   quantile, pnorm(-1))
-    ch  <- tapply(yy, list(defSite = round(ccx[,'juneTemp'], 1), nlcd = coverType), 
+    ch  <- tapply(yy, list(defSite = round(ccx[,xm], 1), nlcd = coverType), 
                   quantile, pnorm(1))
     
     def <- as.numeric(rownames(ct))
@@ -1073,9 +1079,9 @@ for(p in 1:npage){
     
     ylimit <- c(0, 1.5*max(ct))
     
-    ct <- ct[,types]
-    cl <- cl[,types]
-    ch <- ch[,types]
+    ct <- ct[,types, drop=F]
+    cl <- cl[,types, drop=F]
+    ch <- ch[,types, drop=F]
     
     tbar <- barplot( ct, beside = T, plot = F) 
     
@@ -1104,7 +1110,7 @@ for(p in 1:npage){
     
     .plotLabel( lab,above=T )
   }
-  mtext('Moisture deficit by land cover', 1, outer=T)
+  mtext( paste( xm, 'by land cover') , 1, outer=T)
   mtext('Equilibrium abundance', 2, outer=T)
   
   o <- o + 16
@@ -1214,7 +1220,7 @@ effort   <- list(columns = 1:S, values = edata)
 modelList <- list( typeNames = 'DA', ng = 20000, burnin= 5000, 
            timeList=timeList, effort = effort)
 
-output1 <- gjam(formulaRho, xdata=xdata, ydata=ydata, modelList=modelList)
+output1 <- .gjam(formulaRho, xdata=xdata, ydata=ydata, modelList=modelList)
 
 save(output1, file = 'gjamOutputLakes1/gjamOutputLakes1.rdata')
 
