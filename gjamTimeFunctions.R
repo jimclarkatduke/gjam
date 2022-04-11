@@ -736,6 +736,9 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
       gam <- runif(S, .01, .1)
     }
     rhoTrue <- gam
+    rho     <- matrix(0, S, S)
+    diag(rho) <- rhoTrue
+    colnames(rho) <- colnames(w)
   }
   
   if(termA){ # alpha matrix
@@ -780,11 +783,13 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
     
     for(t in 2:nt[k]){
       
-      ep    <- .rMVN(1, 0, sigma)
-      ww[t,] <- ww[t-1,] + t( ep )
-      if(termB) ww[t,] <- ww[t,] + XB[t,] 
+      ww[t,] <- ww[t-1,]
+      if(termB) ww[t,] <- ww[t,] + XB[t-1,] 
       if(termR) ww[t,] <- ww[t,] + ww[t-1,]*gam
-      if(termA) ww[t,] <- ww[t,] + diag(ww[t-1,])%*%aa%*%t(ww[drop=F,t-1,]) 
+      if(termA) ww[t,] <- ww[t,] + diag(ww[t-1,])%*%aa%*%t(ww[drop=F,t-1,])
+                                         
+      ep    <- .rMVN(1, 0, sigma)
+      ww[t,] <- ww[t,] + t( ep )
       
       if(sum(ww[t,]) > 1000000)stop('try again')
     }
@@ -830,9 +835,6 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
     wdata <- data.frame( eigenvalues = eigen(aa)$values, carryingCapacity = wstar )
     print( wdata )
   }
-  
-  rho <- matrix(0, S, S)
-  diag(rho) <- rhoTrue
   
   trueValues <- list(beta = beta, rho = rho, alpha = alphaTrue, 
                      sigma = sigma, w = w)
