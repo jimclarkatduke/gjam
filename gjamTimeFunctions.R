@@ -704,7 +704,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
   }
   
   w <- matrix(1000,ntot,S)
-  colnames(w) <- paste('s', 1:S, sep='')
+  snames <- colnames(w) <- paste('s', 1:S, sep='')
   
   if(termB){ # environmental immigration/emigration
     
@@ -717,7 +717,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
     beta[1,] <- rnorm(S, 0, 1)
     colnames(x) <- rownames(beta) <- paste('x',1:Q,sep='')
     rownames(beta)[1] <- 'intercept'
-    colnames(beta) <- paste('s', 1:S, sep='')
+    colnames(beta) <- snames
     
   }else{
     
@@ -738,7 +738,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
     rhoTrue <- gam
     rho     <- matrix(0, S, S)
     diag(rho) <- rhoTrue
-    colnames(rho) <- colnames(w)
+    colnames(rho) <- snames
   }
   
   if(termA){ # alpha matrix
@@ -768,6 +768,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
   
   # residual covariance
   sigma <- diag(1, S)
+  rownames(sigma) <- colnames(sigma) <- snames
   XB    <- 0
   
   for(k in 1:nsite){
