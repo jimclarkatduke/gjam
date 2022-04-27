@@ -943,9 +943,25 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
   timeZero <- grep('-0', rownames(ydata)) # rownames from gjamFillMissing
   timeLast <- c( timeZero - 1, nrow(ydata))[-1]
   
-  if(termB){  # only XB
+  if( termB ){  # only XB
     
-    x <- getDesign(formulaBeta, xdata)$x
+    xframe <- model.frame(formulaBeta, xdata, na.action=NULL)
+    xtmp   <- xdata
+    if(ncol(xframe) > 1){
+      xframe <- model.matrix(formulaBeta, xframe)[drop=F,,-1]
+      xframe[ is.na(xframe) ] <- 0
+      xframe <- standardize( xframe )
+      mm <- intersect( colnames(xtmp), colnames(xframe) )
+      xtmp[,mm] <- xframe[,mm]
+    }
+    
+    x <- getDesign(formulaBeta, xtmp)$x
+    
+    wna <- which( is.na(x), arr.ind = T )
+    if(length(wna) > 0){
+      xmu <- colMeans(x, na.rm = T)
+      x[ wna ] <- xmu[ wna[,2] ]
+    }
     
     kname <- as.vector( outer( colnames(x), colnames(w), FUN = paste, sep='-') )
     
@@ -991,8 +1007,8 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     
     rownames(bl)[1] <- rownames(bh)[1] <- 'intercept'
     
-    blo[ blo < -betaMax ] <- -betaMax
-    bhi[ bhi > betaMax ]  <- betaMax
+    bl[ bl < -betaMax ] <- -betaMax
+    bh[ bh > betaMax ]  <- betaMax
     
     if( is.list(betaPrior) ){
       gg  <- gjamPriorTemplate(formulaBeta, xdata, ydata = ydata, 
@@ -1015,10 +1031,28 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     bp  <- list(lo = blo, hi = bhi )
   }
   
-  if(termR){  # rho
+  if( termR ){  # rho
     
-    x   <- getDesign(formulaRho, xdata)$x
+    
+    xframe <- model.frame(formulaRho, xdata, na.action=NULL)
+    xtmp   <- xdata
+    if(ncol(xframe) > 1){
+      xframe <- model.matrix(formulaRho, xframe)[drop=F,,-1]
+      xframe[ is.na(xframe) ] <- 0
+      xframe <- standardize( xframe )
+      mm <- intersect( colnames(xtmp), colnames(xframe) )
+      xtmp[,mm] <- xframe[,mm]
+    }
+    
+    x   <- getDesign(formulaRho, xtmp)$x
     colnames(x)[1] <- 'intercept'
+    
+    wna <- which( is.na(x), arr.ind = T )
+    if(length(wna) > 0){
+      xmu <- colMeans(x, na.rm = T)
+      x[ wna ] <- xmu[ wna[,2] ]
+    }
+    
     
     mlo <- matrix(-10, ncol(x), S)
     colnames(mlo) <- ynames
@@ -1037,11 +1071,13 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     }
     
     for(k in 1:length(rhoPrior$lo)){
+      if( !names(rhoPrior$lo)[k] %in% names(mlo) )next
       rlo <- rhoPrior$lo[[k]]
       if(length(rlo) == 1)rlo <- rep(rlo, S)
       mlo[ names(rhoPrior$lo)[k], ] <- rlo
     }
     for(k in 1:length(rhoPrior$hi)){
+      if( !names(rhoPrior$hi)[k] %in% names(mhi) )next
       rhi <- rhoPrior$hi[[k]]
       if(length(rhi) == 1)rhi <- rep(rhi, S)
       mhi[ names(rhoPrior$hi)[k], ] <- rhi
@@ -1129,11 +1165,13 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     
     rm <- sumb/sumn
     rm[ !is.finite(rm) ] <- 0
-  #  rl <- -1.5*abs(rm)
-    rl <- mlo
+    rl <- -1.5*abs(rm)
     rh <- -rl
-    rl[ rl[1,] > mlo[1,] ] <- mlo[rl[1,] > mlo[1,] ]
-    rh[ rh[1,] < mhi[1,] ] <- mhi[rh[1,] < mhi[1,] ]
+    rl <- pmax( rl, mlo )
+    rh <- pmin( rh, mhi )
+
+ #   rl[ rl[1,] > mlo[1,] ] <- mlo[rl[1,] > mlo[1,] ]
+ #   rh[ rh[1,] < mhi[1,] ] <- mhi[rh[1,] < mhi[1,] ]
     
     lp <- list(lo = rl, hi = rh)
     
