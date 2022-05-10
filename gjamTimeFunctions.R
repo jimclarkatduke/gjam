@@ -1,4 +1,5 @@
 
+# TOF
 
 colF <- colorRampPalette( c('#8c510a','#d8b365','#c7eae5','#5ab4ac','#01665e','#2166ac') )
 
@@ -19,7 +20,8 @@ mergeList <- function( list1, list2 ){
       list1[k] <- list2[k]
     }
   }
-  list1
+  notnull <- which( !sapply( list1, is.null ) )
+  list1[ notnull ]
 }
 
 .pasteCols <- function(mm){
@@ -706,7 +708,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
   w <- matrix(1000,ntot,S)
   snames <- colnames(w) <- paste('s', 1:S, sep='')
   
-  if(termB){ # environmental immigration/emigration
+  if( termB ){ # environmental immigration/emigration
     
     bsd <- 2
     if(termR)bsd <- 2
@@ -726,7 +728,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
     
   }
   
-  if(termR){ # growth rate rho
+  if( termR ){ # growth rate rho
     
     gam <- runif(S, -.03, .03)       
     if(termB){
@@ -741,7 +743,7 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
     colnames(rho) <- snames
   }
   
-  if(termA){ # alpha matrix
+  if( termA ){ # alpha matrix
     
     intrWt <- 1.2
     if(S > 10)intrWt <- 10
@@ -802,8 +804,8 @@ gjamSimTime <- function(S, Q = 0, nsite, ntime = 50, termB, termR, termA, obsEff
   wkeep <- which( is.finite(rowSums(w)) & apply(w, 1, min) > 0 )
   w <- w[wkeep,]
   if(termB){
-    x <- x[wkeep,]
-    x <- x[,!colnames(x) == 'x']
+    x <- x[drop=F, wkeep,]
+    x <- x[,!colnames(x) == 'x', drop=F]
   }
   times <- times[wkeep]
   groups <- groups[wkeep]
@@ -900,6 +902,18 @@ getDesign <- function(form, xdata){
   
   list(x = x, xmean = xm, xsd = xs)
   
+}
+
+standardize <- function(xframe){
+  
+  # xframe - object created with model.frame
+  
+  xframe[ !is.finite(xframe) ] <- NA
+  xmu <- colMeans(xframe, na.rm=T)
+  xsd <- apply( xframe, 2, sd, na.rm = T)
+  xx  <- sweep( xframe, 2, xmu, '-' )
+  xx  <- sweep( xx, 2, xsd, '/' )
+  xx
 }
 
 gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5, 
@@ -1033,7 +1047,6 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
   
   if( termR ){  # rho
     
-    
     xframe <- model.frame(formulaRho, xdata, na.action=NULL)
     xtmp   <- xdata
     if(ncol(xframe) > 1){
@@ -1053,8 +1066,7 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       x[ wna ] <- xmu[ wna[,2] ]
     }
     
-    
-    mlo <- matrix(-10, ncol(x), S)
+    mlo <- matrix(-1, ncol(x), S)
     colnames(mlo) <- ynames
     rownames(mlo) <- colnames(x)
     mhi <- -mlo
@@ -1071,13 +1083,13 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     }
     
     for(k in 1:length(rhoPrior$lo)){
-      if( !names(rhoPrior$lo)[k] %in% names(mlo) )next
+      if( !(names(rhoPrior$lo)[k] %in% rownames(mlo)) )next
       rlo <- rhoPrior$lo[[k]]
       if(length(rlo) == 1)rlo <- rep(rlo, S)
       mlo[ names(rhoPrior$lo)[k], ] <- rlo
     }
     for(k in 1:length(rhoPrior$hi)){
-      if( !names(rhoPrior$hi)[k] %in% names(mhi) )next
+      if( !(names(rhoPrior$hi)[k] %in% rownames(mhi)) )next
       rhi <- rhoPrior$hi[[k]]
       if(length(rhi) == 1)rhi <- rep(rhi, S)
       mhi[ names(rhoPrior$hi)[k], ] <- rhi
@@ -1167,8 +1179,8 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
     rm[ !is.finite(rm) ] <- 0
     rl <- -1.5*abs(rm)
     rh <- -rl
-    rl <- pmax( rl, mlo )
-    rh <- pmin( rh, mhi )
+    rl <- pmin( rl, mlo )
+    rh <- pmax( rh, mhi )
 
  #   rl[ rl[1,] > mlo[1,] ] <- mlo[rl[1,] > mlo[1,] ]
  #   rh[ rh[1,] < mhi[1,] ] <- mhi[rh[1,] < mhi[1,] ]
