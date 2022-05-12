@@ -1036,6 +1036,9 @@ gjamTimePrior <- function( xdata, ydata, edata, priorList, minSign = 5,
       bhi[ !rownames(bhi)%in% names(betaPrior$hi), colnames(bhi) ] <- 
         bh[ !rownames(bhi)%in% names(betaPrior$hi),  ]
       
+      blo <- blo[ drop=F, rownames(blo) %in% names(betaPrior$lo), ]
+      bhi <- bhi[ drop=F, rownames(bhi) %in% names(betaPrior$hi), ]
+      
     }else{
       blo <- bl
       attr(blo,'formula') <- formulaBeta
